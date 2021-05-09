@@ -105,7 +105,7 @@ int main() {
 
     server.sin_family = AF_INET;
     server.sin_addr.s_addr = INADDR_ANY;
-    server.sin_port = ntohs(2223);
+    server.sin_port = ntohs(2222);
     if (bind(sock, (struct sockaddr *) &server, sizeof(server))) {
         perror("binding stream socket");
         exit(1);
@@ -192,22 +192,26 @@ void *thread_command(void *ptr) {
         }
 
         else if(strcmp(first, "print")== 0) {
+
             char *second = strtok(NULL, " ");
             char *third = strtok(NULL, " ");
 
-            second[strlen(second)] = '\n';
+            char printMsg[100];
+            strcpy(printMsg, second);
+            int lastByte = strlen(second);
+            printMsg[lastByte] = '\n';
+            printMsg[lastByte+1] = '\0';
+
             if (third == NULL) {
                 for(int i=0; i<clients.size(); i++) {
-                    write(clients[i].fd, second, strlen(second));
+                    write(clients[i].fd, printMsg, strlen(printMsg));
                 }
             }
             else {
                 int c_id = atoi(third);
-                cout << third << endl;
                 for(int i=0; i<clients.size(); i++) {
                     if(c_id == clients[i].fd) {
-
-                        write(clients[i].fd, second, strlen(second));
+                        write(clients[i].fd, printMsg, strlen(printMsg));
                         break;
                     }
                 }
