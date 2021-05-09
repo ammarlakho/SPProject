@@ -6,13 +6,30 @@
 #include <fcntl.h>
 #include <sys/wait.h>
 #include <sys/socket.h>
-#include <netinet/in.h>9
+#include <arpa/inet.h>
+#include <netinet/in.h>
 #include <netdb.h>
 #include <stdio.h>
-
+#include <vector>
+#include <poll.h>
 
 using namespace std;
 using namespace std::chrono;
+
+
+class Client {
+    public:
+        int id;
+        char ip[100];
+        int port;
+    Client(int t_id, char t_ip[], int t_port) {
+        id = t_id;
+        strcpy(ip, t_ip);
+        port = t_port;
+    }
+    Client() {
+    }
+};
 
 class MyProcess {
   public:
@@ -38,6 +55,9 @@ class MyProcess {
     }
 };
 
+const int length = 4096;
+
+
 int numOfActiveProcesses = 0;
 int numOfAllProcesses = 0;
 
@@ -46,6 +66,7 @@ const int MAX_ALL = 30;
 
 MyProcess allList[MAX_ALL];
 MyProcess activeList[MAX_ACTIVE];
+vector<Client> clients;
 
 
 int add(char *numbers);
@@ -59,18 +80,18 @@ int first_vacant(MyProcess processes[], int len);
 void sigChildHandler(int signo);
 int removebyID(int id, int wannaKill);
 int removebyName(char *name, int wannaKill);
+void *thread_accept(void *ptr);
+void *thread_command(void *ptr);
+
+
 
 
 int main() {
 
     signal(SIGCHLD, sigChildHandler);
 
-    int length = 4096;
     int sock, serverLength;
     struct sockaddr_in server;
-    int msgsock;
-    int rval;
-    int i;
 
 
     /* Create socket */
@@ -102,14 +123,134 @@ int main() {
     listen(sock, 5);
 
 
+    pthread_t threadAccept, threadCommand;
+
+    int  iret1, iret2;
+
+    /* Create independent threads each of which will execute function */
+    iret1 = pthread_create(&threadAccept, NULL, thread_accept, (void*) sock);
+    if(iret1) {
+        fprintf(stderr,"Error - pthread_create() return code: %d\n",iret1);
+        exit(EXIT_FAILURE);
+    }
+
+    iret2 = pthread_create(&threadCommand, NULL, thread_command, (void*) sock);
+    if(iret2) {
+        fprintf(stderr,"Error - pthread_create() return code: %d\n",iret2);
+        exit(EXIT_FAILURE);
+    }
+
+    pthread_join(threadAccept, NULL);
+    pthread_join(threadCommand, NULL);
+
+}
+
+
+void *thread_command(void *ptr) {
+    char commandC[length];
+    char result[length];
+    int resL = 0;
+    int readB = 0;
+    char prompt[] = "Enter command:\n";
 
     while(1) {
-        msgsock = accept(sock, 0, 0);
+        bzero(result, sizeof(result));
+
+        if(write(STDOUT_FILENO, prompt, strlen(prompt)) < 0)
+            perror("writing on stdout ");
+        if((readB = read(STDIN_FILENO, commandC, length)) < 0)
+            perror("reading on stdout ");
+
+
+//      Removing new line character and any spaces at the end
+        commandC[readB-1] = '\0';
+        for (int i=readB-2; i>=0; i--) {
+            if(commandC[i] == ' ')
+                commandC[i] = '\0';
+            else
+                break;
+        }
+
+
+        if(strcmp(commandC, "listConn")== 0) {
+            resL = 0;
+
+            for(int i=0; i<clients.size(); i++) {
+                char row[256];
+                resL += sprintf(row, "ID: %d, IP: %s, Port: %d\n", clients[i].id, clients[i].ip, clients[i].port);
+                strcat(result, row);
+            }
+            strcat(result, "\n");
+            if(resL > 0)
+                resL = strlen(result);
+            else
+                resL = sprintf(result, "No Clients\n");
+            write(STDOUT_FILENO, result, resL);
+        }
+        else {
+            char errMsg[] = "Invalid Command\n";
+            write(STDOUT_FILENO, errMsg, strlen(errMsg));
+        }
+    }
+
+}
+
+
+void *thread_accept(void *ptr) {
+    int sock_local = (intptr_t) ptr;
+    struct sockaddr_in client_addr;
+    socklen_t clilen = sizeof(client_addr);
+    int rval;
+    int iter = 0;
+    while(1) {
+        int msgsock = accept(sock_local, (struct sockaddr *) &client_addr, &clilen);
         if (msgsock == -1)
             perror("accept");
+
         else {
+            iter++;
+            char cMsg[100];
+//            int cLen = sprintf(cMsg,"server: got connection from %s port %d\n", inet_ntoa(client.sin_addr), ntohs(client.sin_port));
+//            write(STDOUT_FILENO, cMsg, cLen);
+            Client client = Client(iter, inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
+            clients.push_back(client);
+
+//            int pipeClientInfo[2];
+//            pipe(pipeClientInfo);
+            int pipeDeleteConn[2];
+            pipe(pipeDeleteConn);
+
+            struct pollfd fds[1];
+            fds[0].fd = pipeDeleteConn[0];
+            fds[0].events = POLLIN;
+
             int fid = fork();
+//            if (fid > 0) {
+//                close(pipeDeleteConn[1]);
+//                struct pollfd fds[1];
+//                fds[0].fd = pipeDeleteConn[0];
+//                fds[0].events = POLLIN;
+//                poll(fds, 1, -1);
+//
+//                int rpoll = poll(fds, 1, -1);
+//                if(rpoll == -1)
+//                perror("poll ");
+//                if(fds[0].revents & POLLIN) {
+//                }
+//
+//                Client deleteClient;
+//                read(pipeDeleteConn[0], &deleteClient, sizeof(deleteClient));
+//                int deleteID = deleteClient.id;
+//
+//                for(int i=0; i<clients.size(); i++) {
+//                    if(clients[i].id == deleteID) {
+//                        clients.erase(clients.begin() + i);
+//                        break;
+//                    }
+//                }
+//            }
             if (fid == 0) {
+                close(pipeDeleteConn[0]);
                 while(1) {
                     char commandS[length];
                     char *commandTokenized;
@@ -175,29 +316,17 @@ int main() {
 
             //                exec
                             else if(type==5) {
-                                write(STDOUT_FILENO, "run\n", 4);
                                 commandTokenized = strtok(NULL, " ");
-                                write(STDOUT_FILENO, "run1\n", 5);
                                 char *args[100];
-                                write(STDOUT_FILENO, "run2\n", 5);
                                 int j = 0;
-                                write(STDOUT_FILENO, "run3\n", 5);
                                 while (commandTokenized != NULL) {
-                                    cout << commandTokenized << endl;
-                                    write(STDOUT_FILENO, "run4\n", 5);
-                                    args[i] = commandTokenized;
-                                    write(STDOUT_FILENO, "run5\n", 5);
+                                    args[j] = commandTokenized;
                                     commandTokenized = strtok(NULL, " ");
-                                    write(STDOUT_FILENO, "run6\n", 5);
                                     j++;
-                                    write(STDOUT_FILENO, "run7\n", 5);
                                 }
-                                write(STDOUT_FILENO, "run8\n", 5);
                                 args[j] = NULL;
-                                write(STDOUT_FILENO, "hi\n", 3);
 
                                 if (j>=1) {
-                                    write(STDOUT_FILENO, "jg1\n", 4);
                                     int pipeProcess[2];
                                     pipe(pipeProcess);
                                     int pipeFailure[2];
@@ -214,18 +343,14 @@ int main() {
 
                                         if(write(pipeProcess[1], &newP, sizeof(MyProcess)) < 0)
                                             perror("write on pipe");
-                                        write(STDOUT_FILENO, "1\n", 2);
                                         int a = execvp(args[0], args);
-                                        write(STDOUT_FILENO, "2\n", 2);
                                         if(a == -1) {
-                                            write(STDOUT_FILENO, "3\n", 2);
                                             perror("ERROR ");
                                             write(pipeFailure[1], "failed", 6);
                                             exit(0);
                                         }
                                     }
                                     else {
-                                        write(STDOUT_FILENO, "4\n", 2);
                                         close(pipeProcess[1]);
                                         close(pipeFailure[1]);
 
@@ -234,9 +359,7 @@ int main() {
 
                                         char *failureMsg;
                                         int f = read(pipeFailure[0], &failureMsg, 6);
-                                        write(STDOUT_FILENO, "5\n", 2);
                                         if(f == 0) {
-                                            write(STDOUT_FILENO, "6\n", 2);
                                             int v1 = first_vacant(activeList, MAX_ACTIVE);
                                             int v2 = first_vacant(allList, MAX_ALL);
                                             if(v1 == MAX_ACTIVE) {
@@ -257,7 +380,6 @@ int main() {
                                     }
                                 }
                                 else {
-                                    write(STDOUT_FILENO, "jl1\n", 4);
                                     ansL = sprintf(ansS, "Insufficient arguments to run\n");
                                 }
 
@@ -365,6 +487,7 @@ int main() {
                             perror("writing on socket ");
 
                         if(type == 0) {
+//                            Kill all processes executed by client
                             for(int i=0; i<MAX_ACTIVE; i++) {
                                 if(activeList[i].pid != 0 && strcmp(activeList[i].pname, "") != 0) {
                                     if(kill(activeList[i].pid, SIGTERM) < 0)
@@ -372,6 +495,17 @@ int main() {
 
                                 }
                             }
+
+//                            Send a message back to conn to delete this particular client
+                            for(int i=0; i<clients.size(); i++) {
+                               if(clients[i].id == client.id) {
+                                   clients.erase(clients.begin() + i);
+                                    break;
+                                }
+                            }
+
+                            if(write(pipeDeleteConn[1], &client, sizeof(client)) < 0)
+                                perror("write on pipe");
                             exit(0);
                         }
                     }
