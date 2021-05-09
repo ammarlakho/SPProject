@@ -45,6 +45,11 @@ int main(int argc, char *argv[]) {
         exit(1);
     }
 
+    char prompt[] = "Enter command:\n\n";
+    if(write(STDOUT_FILENO, prompt, strlen(prompt)) < 0)
+        perror("writing on stdout ");
+
+
     while(1) {
         pthread_t threadCommand, threadResult;
 
@@ -63,9 +68,12 @@ int main(int argc, char *argv[]) {
             exit(EXIT_FAILURE);
         }
 
+//        pthread_detach(threadCommand);
+//        pthread_detach(threadResult);
         pthread_join(threadCommand, NULL);
         pthread_join(threadResult, NULL);
     }
+
 
         close(sock);
 
@@ -75,23 +83,17 @@ int main(int argc, char *argv[]) {
 
 
 void *thread_command(void *ptr) {
-
     int sock_local = (intptr_t) ptr;
 
     int readB;
     char commandC[length];
 
-//    Prompt for command
-    char prompt[] = "Enter command:\n";
-    if(write(STDOUT_FILENO, prompt, strlen(prompt)) < 0)
-        perror("writing on stdout ");
-
-//    Read command and send command to server
     if((readB = read(STDIN_FILENO, commandC, length)) < 0)
         perror("reading on stdout ");
     int wSockLen;
     if ((wSockLen = write(sock_local, commandC, readB)) < 0)
         perror("writing on socket ");
+
 }
 
 void *thread_result(void *ptr) {
@@ -111,9 +113,9 @@ void *thread_result(void *ptr) {
         exit(0);
     }
     else {
-        if(write(STDOUT_FILENO, ans, ansB) < 0)
+        ans[ansB] = '\n';
+        ans[ansB+1] = '\0';
+        if(write(STDOUT_FILENO, ans, strlen(ans)) < 0)
             perror("Error writing on stdout ");
-        if(write(STDOUT_FILENO, "\n", 1) < 0)
-        perror("Error writing on stdout ");
     }
 }

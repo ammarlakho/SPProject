@@ -75,7 +75,7 @@ int sub(char *numbers);
 int mult(char *numbers);
 double div(char *numbers);
 double solve(char *numbers, int type);
-int opType(char *s);
+int opType(char *s, int blank);
 int validInput(char *numbers, int type);
 int first_vacant(MyProcess processes[], int len);
 void sigChildHandler(int signo);
@@ -105,7 +105,7 @@ int main() {
 
     server.sin_family = AF_INET;
     server.sin_addr.s_addr = INADDR_ANY;
-    server.sin_port = ntohs(2222);
+    server.sin_port = ntohs(2223);
     if (bind(sock, (struct sockaddr *) &server, sizeof(server))) {
         perror("binding stream socket");
         exit(1);
@@ -153,13 +153,14 @@ void *thread_command(void *ptr) {
     char result[length];
     int resL = 0;
     int readB = 0;
-    char prompt[] = "Enter command:\n";
+    char prompt[] = "Enter command:\n\n";
+    if(write(STDOUT_FILENO, prompt, strlen(prompt)) < 0)
+            perror("writing on stdout ");
 
     while(1) {
         bzero(result, sizeof(result));
+        bzero(commandC, sizeof(commandC));
 
-        if(write(STDOUT_FILENO, prompt, strlen(prompt)) < 0)
-            perror("writing on stdout ");
         if((readB = read(STDIN_FILENO, commandC, length)) < 0)
             perror("reading on stdout ");
 
@@ -173,10 +174,10 @@ void *thread_command(void *ptr) {
                 break;
         }
 
+        char *first = strtok(commandC, " ");
 
-        if(strcmp(commandC, "listConn")== 0) {
+        if(strcmp(first, "connList")== 0) {
             resL = 0;
-
             for(int i=0; i<clients.size(); i++) {
                 char row[256];
                 resL += sprintf(row, "ID: %d, IP: %s, Port: %d, fd: %d\n", clients[i].id, clients[i].ip, clients[i].port, clients[i].fd);
@@ -186,11 +187,41 @@ void *thread_command(void *ptr) {
             if(resL > 0)
                 resL = strlen(result);
             else
-                resL = sprintf(result, "No Clients\n");
+                resL = sprintf(result, "No Clients\n\n");
             write(STDOUT_FILENO, result, resL);
         }
+
+        else if(strcmp(first, "print")== 0) {
+            char *second = strtok(NULL, " ");
+            char *third = strtok(NULL, " ");
+
+            second[strlen(second)] = '\n';
+            if (third == NULL) {
+                for(int i=0; i<clients.size(); i++) {
+                    write(clients[i].fd, second, strlen(second));
+                }
+            }
+            else {
+                int c_id = atoi(third);
+                cout << third << endl;
+                for(int i=0; i<clients.size(); i++) {
+                    if(c_id == clients[i].fd) {
+
+                        write(clients[i].fd, second, strlen(second));
+                        break;
+                    }
+                }
+            }
+        }
+
+        else if(strcmp(first, "processList") == 0)  {
+            char *second = strtok(NULL, " ");
+            char *third = strtok(NULL, " ");
+
+            write(STDOUT_FILENO, "PROCESS\n\n", 9);
+        }
         else {
-            char errMsg[] = "Invalid Command\n";
+            char errMsg[] = "Invalid Command\n\n";
             write(STDOUT_FILENO, errMsg, strlen(errMsg));
         }
     }
@@ -209,7 +240,6 @@ void *thread_accept(void *ptr) {
         int msgsock = accept(sock_local, (struct sockaddr *) &client_addr, &clilen);
         if (msgsock == -1)
             perror("accept");
-
         else {
             iter++;
             char cMsg[100];
@@ -218,23 +248,12 @@ void *thread_accept(void *ptr) {
             Client client = Client(iter, inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port), msgsock);
             clients.push_back(client);
 
-//            int pipeClientInfo[2];
-//            pipe(pipeClientInfo);
-            int pipeDeleteConn[2];
-            pipe(pipeDeleteConn);
-
-            struct pollfd fds[1];
-            fds[0].fd = pipeDeleteConn[0];
-            fds[0].events = POLLIN;
-
-
             int fid = fork();
 //            handlerToClient[fid] = client.id;
             if (fid > 0) {
                 handlerToClient[fid] = client.id;
             }
             if (fid == 0) {
-                close(pipeDeleteConn[0]);
                 while(1) {
                     char commandS[length];
                     char *commandTokenized;
@@ -256,6 +275,7 @@ void *thread_accept(void *ptr) {
                             break;
                     }
 
+
                     if (rval == 0) {
                         char msg[] = "Ending Connection\n";
                         bzero(activeList, sizeof(activeList));
@@ -273,9 +293,14 @@ void *thread_accept(void *ptr) {
 
             //            Do the command
                         commandTokenized = strtok (commandS, " ");
-                        int type = opType(commandTokenized);
+                        int type;
+                        if(strlen(commandS) == 0)
+                            type = opType(commandTokenized, 1);
+                        else
+                            type = opType(commandTokenized, 0);
 
-                        if(type != -1) {
+
+                        if(type != -1 && type != -99) {
                             if(type == 0) {
                                 ansL = sprintf(ansS, "exit");
                             }
@@ -459,9 +484,13 @@ void *thread_accept(void *ptr) {
                             }
                         }
                         else {
-                            if (commandTokenized[strlen(commandTokenized)-1] == '\n')
-                                commandTokenized[strlen(commandTokenized)-1] = '\0';
+                            if(type == -1) {
+                                if (commandTokenized[strlen(commandTokenized)-1] == '\n')
+                                    commandTokenized[strlen(commandTokenized)-1] = '\0';
+                            }
+
                             ansL = sprintf(ansS, "Error: Cannot recognize the command: %s\n", commandTokenized);
+
                         }
 
                 //        Send result to client
@@ -488,15 +517,13 @@ void *thread_accept(void *ptr) {
                                 }
                             }
 
-                            if(write(pipeDeleteConn[1], &client, sizeof(client)) < 0)
-                                perror("write on pipe");
                             exit(0);
                         }
                     }
                 }
             }
         }
-        close(msgsock);
+//        close(msgsock);
     }
 }
 
@@ -685,9 +712,14 @@ int validInput(char *numbers, int type) {
 }
 
 
-int opType(char *s) {
+int opType(char *s, int blank) {
+
+    if(blank == 1)
+        return -99;
+
     if (s[strlen(s)-1] == '\n')
         s[strlen(s)-1] = '\0';
+
     if(strcmp(s, "add")==0) {
         return 1;
     }
