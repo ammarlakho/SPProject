@@ -12,6 +12,7 @@
 #include <stdio.h>
 #include <vector>
 #include <poll.h>
+#include <unordered_map>
 
 using namespace std;
 using namespace std::chrono;
@@ -22,10 +23,12 @@ class Client {
         int id;
         char ip[100];
         int port;
-    Client(int t_id, char t_ip[], int t_port) {
+        int fd;
+    Client(int t_id, char t_ip[], int t_port, int t_fd) {
         id = t_id;
         strcpy(ip, t_ip);
         port = t_port;
+        fd = t_fd;
     }
     Client() {
     }
@@ -55,18 +58,16 @@ class MyProcess {
     }
 };
 
+// global constants
 const int length = 4096;
-
-
-int numOfActiveProcesses = 0;
-int numOfAllProcesses = 0;
-
 const int MAX_ACTIVE = 15;
 const int MAX_ALL = 30;
-
+// global variables
 MyProcess allList[MAX_ALL];
 MyProcess activeList[MAX_ACTIVE];
 vector<Client> clients;
+unordered_map<int, int> handlerToClient;
+
 
 
 int add(char *numbers);
@@ -82,6 +83,7 @@ int removebyID(int id, int wannaKill);
 int removebyName(char *name, int wannaKill);
 void *thread_accept(void *ptr);
 void *thread_command(void *ptr);
+void removeClient(int id);
 
 
 
@@ -177,7 +179,7 @@ void *thread_command(void *ptr) {
 
             for(int i=0; i<clients.size(); i++) {
                 char row[256];
-                resL += sprintf(row, "ID: %d, IP: %s, Port: %d\n", clients[i].id, clients[i].ip, clients[i].port);
+                resL += sprintf(row, "ID: %d, IP: %s, Port: %d, fd: %d\n", clients[i].id, clients[i].ip, clients[i].port, clients[i].fd);
                 strcat(result, row);
             }
             strcat(result, "\n");
@@ -202,6 +204,7 @@ void *thread_accept(void *ptr) {
     socklen_t clilen = sizeof(client_addr);
     int rval;
     int iter = 0;
+
     while(1) {
         int msgsock = accept(sock_local, (struct sockaddr *) &client_addr, &clilen);
         if (msgsock == -1)
@@ -212,7 +215,7 @@ void *thread_accept(void *ptr) {
             char cMsg[100];
 //            int cLen = sprintf(cMsg,"server: got connection from %s port %d\n", inet_ntoa(client.sin_addr), ntohs(client.sin_port));
 //            write(STDOUT_FILENO, cMsg, cLen);
-            Client client = Client(iter, inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
+            Client client = Client(iter, inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port), msgsock);
             clients.push_back(client);
 
 //            int pipeClientInfo[2];
@@ -224,31 +227,12 @@ void *thread_accept(void *ptr) {
             fds[0].fd = pipeDeleteConn[0];
             fds[0].events = POLLIN;
 
+
             int fid = fork();
-//            if (fid > 0) {
-//                close(pipeDeleteConn[1]);
-//                struct pollfd fds[1];
-//                fds[0].fd = pipeDeleteConn[0];
-//                fds[0].events = POLLIN;
-//                poll(fds, 1, -1);
-//
-//                int rpoll = poll(fds, 1, -1);
-//                if(rpoll == -1)
-//                perror("poll ");
-//                if(fds[0].revents & POLLIN) {
-//                }
-//
-//                Client deleteClient;
-//                read(pipeDeleteConn[0], &deleteClient, sizeof(deleteClient));
-//                int deleteID = deleteClient.id;
-//
-//                for(int i=0; i<clients.size(); i++) {
-//                    if(clients[i].id == deleteID) {
-//                        clients.erase(clients.begin() + i);
-//                        break;
-//                    }
-//                }
-//            }
+//            handlerToClient[fid] = client.id;
+            if (fid > 0) {
+                handlerToClient[fid] = client.id;
+            }
             if (fid == 0) {
                 close(pipeDeleteConn[0]);
                 while(1) {
@@ -523,12 +507,36 @@ void sigChildHandler(int signo) {
 
     if(eID != -1) {
         removebyID(eID, 0);
+        removeClient(eID);
     }
     else {
         perror("Wait Error: ");
     }
+}
 
-
+void removeClient(int id) {
+    // itr works as a pointer to pair<string, double>
+    // type itr->first stores the key part  and
+    // itr->second stroes the value part
+    //cout << itr->first << "  " << itr->second << endl;
+    int deleteID = -1;
+    unordered_map<int, int>:: iterator itr;
+    for (itr = handlerToClient.begin(); itr != handlerToClient.end(); itr++) {
+        if(itr->first != 0) {
+            if(itr->first == id) {
+                deleteID = itr->second;
+                break;
+            }
+        }
+     }
+     if(deleteID != -1) {
+        for(int i=0; i<clients.size(); i++) {
+            if(clients[i].id == deleteID) {
+                clients.erase(clients.begin() + i);
+                break;
+            }
+        }
+     }
 }
 
 int removebyID(int id, int wannaKill) {
