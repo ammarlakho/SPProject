@@ -20,15 +20,14 @@ using namespace std::chrono;
 
 class Client {
     public:
-        int id;
+        int fd;
         char ip[100];
         int port;
-        int fd;
-    Client(int t_id, char t_ip[], int t_port, int t_fd) {
-        id = t_id;
+    Client(int t_fd, char t_ip[], int t_port) {
+        fd = t_fd;
         strcpy(ip, t_ip);
         port = t_port;
-        fd = t_fd;
+
     }
     Client() {
     }
@@ -58,13 +57,11 @@ class MyProcess {
     }
 };
 
-// global constants
-const int length = 4096;
-const int MAX_ACTIVE = 15;
-const int MAX_ALL = 30;
+
 // global variables
-MyProcess allList[MAX_ALL];
-MyProcess activeList[MAX_ACTIVE];
+const int length = 4096;
+vector<MyProcess> allList;
+vector<MyProcess> activeList;
 vector<Client> clients;
 unordered_map<int, int> handlerToClient;
 
@@ -77,13 +74,15 @@ double div(char *numbers);
 double solve(char *numbers, int type);
 int opType(char *s, int blank);
 int validInput(char *numbers, int type);
-int first_vacant(MyProcess processes[], int len);
 void sigChildHandler(int signo);
 int removebyID(int id, int wannaKill);
 int removebyName(char *name, int wannaKill);
 void *thread_accept(void *ptr);
 void *thread_command(void *ptr);
 void removeClient(int id);
+void computeList(char* plist, int type);
+void writeFileContents(int fname);
+
 
 
 
@@ -149,6 +148,7 @@ int main() {
 
 
 void *thread_command(void *ptr) {
+
     char commandC[length];
     char result[length];
     int resL = 0;
@@ -180,7 +180,7 @@ void *thread_command(void *ptr) {
             resL = 0;
             for(int i=0; i<clients.size(); i++) {
                 char row[256];
-                resL += sprintf(row, "ID: %d, IP: %s, Port: %d, fd: %d\n", clients[i].id, clients[i].ip, clients[i].port, clients[i].fd);
+                resL += sprintf(row, "FD: %d, IP: %s, Port: %d\n", clients[i].fd, clients[i].ip, clients[i].port);
                 strcat(result, row);
             }
             strcat(result, "\n");
@@ -220,10 +220,34 @@ void *thread_command(void *ptr) {
 
         else if(strcmp(first, "processList") == 0)  {
             char *second = strtok(NULL, " ");
-            char *third = strtok(NULL, " ");
 
-            write(STDOUT_FILENO, "PROCESS\n\n", 9);
+            if(second != NULL) {
+                bool exist = false;
+                int second_int = atoi(second);
+                for(int i=0; i<clients.size(); i++) {
+                    if (second_int == clients[i].fd) {
+                        exist = true;
+                        break;
+                    }
+                }
+                if(exist) {
+                    writeFileContents(second_int);
+
+                }
+                else {
+                    char errMsg[100];
+                    int errLen = sprintf(errMsg, "Error: Client with fd=%d doesn't exist\n\n", second_int);
+                    write(STDOUT_FILENO, errMsg, errLen);
+
+                }
+            }
+            else {
+                for(int i=0; i<clients.size(); i++) {
+                    writeFileContents(clients[i].fd);
+                }
+            }
         }
+
         else {
             char errMsg[] = "Invalid Command\n\n";
             write(STDOUT_FILENO, errMsg, strlen(errMsg));
@@ -245,17 +269,14 @@ void *thread_accept(void *ptr) {
         if (msgsock == -1)
             perror("accept");
         else {
-            iter++;
-            char cMsg[100];
-//            int cLen = sprintf(cMsg,"server: got connection from %s port %d\n", inet_ntoa(client.sin_addr), ntohs(client.sin_port));
-//            write(STDOUT_FILENO, cMsg, cLen);
-            Client client = Client(iter, inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port), msgsock);
+            Client client = Client(msgsock, inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
             clients.push_back(client);
 
             int fid = fork();
-//            handlerToClient[fid] = client.id;
+
             if (fid > 0) {
-                handlerToClient[fid] = client.id;
+                handlerToClient[fid] = client.fd;
+
             }
             if (fid == 0) {
                 while(1) {
@@ -266,6 +287,25 @@ void *thread_accept(void *ptr) {
                     int ansL = 0;
                     bzero(ansS, sizeof(ansS));
                     bzero(commandS, sizeof(commandS));
+
+
+
+                    char fileName[100];
+                    sprintf(fileName, "processInfo/%d", client.fd);
+                    int fd_wr = open(fileName, O_WRONLY | O_CREAT | O_TRUNC, S_IRWXU);
+                    if(fd_wr < 0)
+                        perror("opening file ");
+
+                    else {
+                        char listForServer[length];
+                        bzero(listForServer, sizeof(listForServer));
+
+                        if(activeList.size() > 0)
+                            computeList(listForServer, 0);
+
+                        if(write(fd_wr, listForServer, strlen(listForServer)) < 0)
+                            perror("writing on file ");
+                    }
 
                     if ((rval = read(msgsock, commandS, length)) < 0)
                         perror("reading on socket");
@@ -282,18 +322,12 @@ void *thread_accept(void *ptr) {
 
                     if (rval == 0) {
                         char msg[] = "Ending Connection\n";
-                        bzero(activeList, sizeof(activeList));
-                        bzero(allList, sizeof(allList));
                         write(STDOUT_FILENO, msg, strlen(msg));
                         break;
                     }
                     else {
-                        char commandSCopy[strlen(commandS)];
-                        for(int i=0; i<strlen(commandS); i++) {
-                            commandSCopy[i] = commandS[i];
-                        }
-
-    //
+                        char commandSCopy[length];
+                        strcpy(commandSCopy, commandS);
 
             //            Do the command
                         commandTokenized = strtok (commandS, " ");
@@ -330,7 +364,7 @@ void *thread_accept(void *ptr) {
             //                exec
                             else if(type==5) {
                                 commandTokenized = strtok(NULL, " ");
-                                char *args[100];
+                                char *args[10];
                                 int j = 0;
                                 while (commandTokenized != NULL) {
                                     args[j] = commandTokenized;
@@ -373,19 +407,9 @@ void *thread_accept(void *ptr) {
                                         char *failureMsg;
                                         int f = read(pipeFailure[0], &failureMsg, 6);
                                         if(f == 0) {
-                                            int v1 = first_vacant(activeList, MAX_ACTIVE);
-                                            int v2 = first_vacant(allList, MAX_ALL);
-                                            if(v1 == MAX_ACTIVE) {
-                                                ansL = sprintf(ansS, "Error: Max limit reached for active processes. Retry after killing a process.\n");
-                                            }
-                                            else if(v2 == MAX_ALL) {
-                                                ansL = sprintf(ansS, "Error: Max limit reached for total processes. No more processes for you :(\n");
-                                            }
-                                            else {
-                                                activeList[v1] = p;
-                                                allList[v2] = p;
-                                                ansL = sprintf(ansS, "Successful execution of %s\n", args[0]);
-                                            }
+                                            activeList.push_back(p);
+                                            allList.push_back(p);
+                                            ansL = sprintf(ansS, "Successful execution of %s\n", args[0]);
                                         }
                                         else {
                                             ansL = sprintf(ansS, "Exec failed. Try again :(\n");
@@ -404,10 +428,6 @@ void *thread_accept(void *ptr) {
                                     ansL = sprintf(ansS, "Insufficient arguments to kill\n");
                                 }
                                 else {
-
-                                    if (arg[strlen(arg)-1] == '\n')
-                                        arg[strlen(arg)-1] = '\0';
-
                                     bool idOrNot = true;
                                     int foundID = 0;
                                     int foundName = 0;
@@ -432,57 +452,19 @@ void *thread_accept(void *ptr) {
                                 }
                             }
                             else if(type == 7) {
-                                    auto current_clock = high_resolution_clock::now();
-                                    time_t current_time = chrono::system_clock::to_time_t(current_clock);
-                                    ansL = 0;
-                                    for(int i=0; i<MAX_ACTIVE; i++) {
-                                        if(activeList[i].pid != 0 && strcmp(activeList[i].pname, "") != 0) {
-                                //            Time since it was run
-                                            int elapsed_time = difftime(current_time, activeList[i].start_time);
-                                            char row[128];
-                                            ansL += sprintf(row, "ID: %d, Name: %s, Start: %s, T(Elapsed): %ds\n", activeList[i].pid, activeList[i].pname, ctime(&activeList[i].start_time), elapsed_time);
-                                            strcat(ansS, row);
-                                        }
-                                    }
-                                    strcat(ansS, "\n");
-                                    if(ansL > 0)
-                                        ansL = strlen(ansS);
-                                    else
-                                        ansL = sprintf(ansS, "No processes active\n");
+                                if(activeList.size() > 0) {
+                                    computeList(ansS, 0);
+                                    ansL = strlen(ansS);
+                                }
+                                else
+                                    ansL = sprintf(ansS, "No processes active\n");
+
                             }
                             else if(type == 8) {
-                                auto current_clock = high_resolution_clock::now();
-                                time_t current_time = chrono::system_clock::to_time_t(current_clock);
-                                ansL = 0;
-                                for(int i=0; i<MAX_ALL; i++) {
-                                    if(allList[i].pid != 0 && strcmp(allList[i].pname, "") != 0) {
-                                        char rowP1[128];
-                                        char rowP2[128];
-                            //            Time since it was run
-                                        int elapsed_time = difftime(current_time, allList[i].start_time);
-                                        char *active;
-                                        if(allList[i].active)
-                                            active = "yes";
-                                        else
-                                            active = "no";
-                                        if(allList[i].end_time == 0) {
-                                            ansL += sprintf(rowP1, "ID: %d, Name: %s, Start: %s, End: N/A, T(Elapsed): %ds, T(Execution): N/A, Active:%s\n", allList[i].pid, allList[i].pname, ctime(&allList[i].start_time), elapsed_time, active);
-                                            strcat(ansS, rowP1);
-                                        }
-                                        else {
-                                            time_t end_time = allList[i].end_time;
-                        //                    total time it ran for
-                                            int execution_time = difftime(allList[i].end_time, allList[i].start_time);
-                                            ansL += sprintf(rowP1, "ID: %d, Name: %s, Start: %s, ", allList[i].pid, allList[i].pname, ctime(&allList[i].start_time));
-                                            ansL += sprintf(rowP2, "End: %s, T(Elapsed): %ds, T(Execution): %ds, Active:%s\n", ctime(&end_time), elapsed_time, execution_time, active);
-                                            strcat(ansS, rowP1);
-                                            strcat(ansS, rowP2);
-                                        }
-                                    }
-                                }
-                                strcat(ansS, "\n");
-                                if(ansL > 0)
+                                if(allList.size() > 0) {
+                                    computeList(ansS, 1);
                                     ansL = strlen(ansS);
+                                }
                                 else
                                     ansL = sprintf(ansS, "No processes\n");
                             }
@@ -498,28 +480,21 @@ void *thread_accept(void *ptr) {
                         }
 
                 //        Send result to client
-
                         int wSockLen;
                         if ((wSockLen = write(msgsock, ansS, ansL)) < 0)
                             perror("writing on socket ");
 
                         if(type == 0) {
 //                            Kill all processes executed by client
-                            for(int i=0; i<MAX_ACTIVE; i++) {
+                            for(int i=0; i<activeList.size(); i++) {
                                 if(activeList[i].pid != 0 && strcmp(activeList[i].pname, "") != 0) {
                                     if(kill(activeList[i].pid, SIGTERM) < 0)
                                         perror("kill ");
 
                                 }
                             }
-
-//                            Send a message back to conn to delete this particular client
-                            for(int i=0; i<clients.size(); i++) {
-                               if(clients[i].id == client.id) {
-                                   clients.erase(clients.begin() + i);
-                                    break;
-                                }
-                            }
+//                            Delete the file you are storing your process list in
+                            remove(fileName);
 
                             exit(0);
                         }
@@ -528,6 +503,33 @@ void *thread_accept(void *ptr) {
             }
         }
 //        close(msgsock);
+    }
+}
+
+
+void writeFileContents(int fname) {
+    char fileName[100];
+    sprintf(fileName, "processInfo/%d", fname);
+//    cout << fileName << endl;
+    int fd_re = open(fileName, O_RDONLY, S_IRWXU);
+    if(fd_re < 0)
+        perror("opening file ");
+    else {
+        char listToPrint[length];
+        char content[length-100];
+        char heading[100];
+        bzero(listToPrint, sizeof(listToPrint));
+        bzero(content, sizeof(content));
+        bzero(heading, sizeof(heading));
+
+        sprintf(heading, "Processes for fd=%d\n", fname);
+        strcat(listToPrint, heading);
+
+        int listLen = read(fd_re, content, length);
+        strcat(listToPrint, content);
+        strcat(listToPrint, "\n\0");
+
+        write(STDOUT_FILENO, listToPrint, strlen(listToPrint));
     }
 }
 
@@ -545,7 +547,7 @@ void sigChildHandler(int signo) {
     }
 }
 
-void removeClient(int id) {
+void removeClient(int pid) {
     // itr works as a pointer to pair<string, double>
     // type itr->first stores the key part  and
     // itr->second stroes the value part
@@ -553,16 +555,15 @@ void removeClient(int id) {
     int deleteID = -1;
     unordered_map<int, int>:: iterator itr;
     for (itr = handlerToClient.begin(); itr != handlerToClient.end(); itr++) {
-        if(itr->first != 0) {
-            if(itr->first == id) {
-                deleteID = itr->second;
-                break;
-            }
+        if(itr->first == pid) {
+            deleteID = itr->second;
+            handlerToClient.erase(pid);
+            break;
         }
      }
      if(deleteID != -1) {
         for(int i=0; i<clients.size(); i++) {
-            if(clients[i].id == deleteID) {
+            if(clients[i].fd == deleteID) {
                 clients.erase(clients.begin() + i);
                 break;
             }
@@ -571,23 +572,29 @@ void removeClient(int id) {
 }
 
 int removebyID(int id, int wannaKill) {
-    MyProcess emptyP;
     bool foundID = false;
-    for(int i=0; i<MAX_ACTIVE; i++) {
+    for(int i=0; i<activeList.size(); i++) {
         if(activeList[i].pid == id && activeList[i].pid != 0) {
             foundID = true;
             if(wannaKill == 1)
                 if(kill(activeList[i].pid, SIGTERM) < 0)
                     perror("kill error: ");
-            activeList[i] = emptyP;
-            auto current_clock = high_resolution_clock::now();
-            time_t current_time = chrono::system_clock::to_time_t(current_clock);
-            allList[i].end_time = current_time;
-            allList[i].active = false;
-
+            activeList.erase(activeList.begin()+i);
             break;
         }
     }
+
+    auto current_clock = high_resolution_clock::now();
+    time_t current_time = chrono::system_clock::to_time_t(current_clock);
+    for(int j=0; j<allList.size(); j++) {
+        if(allList[j].pid == id) {
+            allList[j].end_time = current_time;
+            allList[j].active = false;
+            break;
+        }
+    }
+
+
     if(!foundID)
         return -1;
     else
@@ -595,22 +602,30 @@ int removebyID(int id, int wannaKill) {
 
 }
 int removebyName(char *name, int wannaKill) {
-    MyProcess emptyP;
     bool foundName = false;
-    for(int i=0; i<MAX_ACTIVE; i++) {
+    int id = -1;
+    for(int i=0; i<activeList.size(); i++) {
         if(strcmp(activeList[i].pname, name) == 0) {
             foundName = true;
             int num = atoi(name);
             if(wannaKill == 1)
                 if(kill(activeList[i].pid, SIGTERM) < 0)
                     perror("kill error: ");
-            activeList[i] = emptyP;
-            auto current_clock = high_resolution_clock::now();
-            time_t current_time = chrono::system_clock::to_time_t(current_clock);
-            allList[i].end_time = current_time;
-            allList[i].active = false;
-
+            activeList.erase(activeList.begin()+i);
+            id = activeList[i].pid;
             break;
+        }
+    }
+
+    if(foundName) {
+        auto current_clock = high_resolution_clock::now();
+        time_t current_time = chrono::system_clock::to_time_t(current_clock);
+        for(int j=0; j<allList.size(); j++) {
+            if(allList[j].pid == id) {
+                allList[j].end_time = current_time;
+                allList[j].active = false;
+                break;
+            }
         }
     }
 
@@ -755,17 +770,51 @@ int opType(char *s, int blank) {
     return -1;
 }
 
-int first_vacant(MyProcess processes[], int len) {
-    int last = len;
-        for(int i=0; i<last; i++) {
-            if(processes[i].pid == 0 && strcmp(processes[i].pname, "") == 0) {
-                last = i;
-                break;
-            }
+
+void computeList(char* plist, int type) {
+    if(type == 0) {
+        auto current_clock = high_resolution_clock::now();
+        time_t current_time = chrono::system_clock::to_time_t(current_clock);
+        for(int i=0; i<activeList.size(); i++) {
+            //Time since it was run
+            int elapsed_time = difftime(current_time, activeList[i].start_time);
+            char row[128];
+            sprintf(row, "ID: %d, Name: %s, Start: %s, T(Elapsed): %ds\n", activeList[i].pid, activeList[i].pname, ctime(&activeList[i].start_time), elapsed_time);
+            strcat(plist, row);
         }
-    return last;
+        strcat(plist, "\n");
+        strcat(plist, "\0");
+    }
+    else {
+        auto current_clock = high_resolution_clock::now();
+        time_t current_time = chrono::system_clock::to_time_t(current_clock);
+        for(int i=0; i<allList.size(); i++) {
+            char rowP1[128];
+            char rowP2[128];
+//            Time since it was run
+            int elapsed_time = difftime(current_time, allList[i].start_time);
+            char *active;
+            if(allList[i].active)
+                active = "yes";
+            else
+                active = "no";
+            if(allList[i].end_time == 0) {
+                sprintf(rowP1, "ID: %d, Name: %s, Start: %s, End: N/A, T(Elapsed): %ds, T(Execution): N/A, Active:%s\n", allList[i].pid, allList[i].pname, ctime(&allList[i].start_time), elapsed_time, active);
+                strcat(plist, rowP1);
+            }
+            else {
+                time_t end_time = allList[i].end_time;
+//                    total time it ran for
+                int execution_time = difftime(allList[i].end_time, allList[i].start_time);
+                sprintf(rowP1, "ID: %d, Name: %s, Start: %s, ", allList[i].pid, allList[i].pname, ctime(&allList[i].start_time));
+                sprintf(rowP2, "End: %s, T(Elapsed): %ds, T(Execution): %ds, Active:%s\n", ctime(&end_time), elapsed_time, execution_time, active);
+                strcat(plist, rowP1);
+                strcat(plist, rowP2);
+            }
+
+        }
+        strcat(plist, "\n");
+        strcat(plist, "\0");
+    }
+
 }
-
-
-
-
