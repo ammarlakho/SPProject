@@ -50,7 +50,6 @@ int main(int argc, char *argv[]) {
         perror("writing on stdout ");
 
 
-    while(1) {
         pthread_t threadCommand, threadResult;
 
         int  iret1, iret2;
@@ -72,8 +71,6 @@ int main(int argc, char *argv[]) {
 //        pthread_detach(threadResult);
         pthread_join(threadCommand, NULL);
         pthread_join(threadResult, NULL);
-    }
-
 
         close(sock);
 
@@ -88,11 +85,13 @@ void *thread_command(void *ptr) {
     int readB;
     char commandC[length];
 
-    if((readB = read(STDIN_FILENO, commandC, length)) < 0)
+    while(1) {
+        if((readB = read(STDIN_FILENO, commandC, length)) < 0)
         perror("reading on stdout ");
-    int wSockLen;
-    if ((wSockLen = write(sock_local, commandC, readB)) < 0)
-        perror("writing on socket ");
+        int wSockLen;
+        if ((wSockLen = write(sock_local, commandC, readB)) < 0)
+            perror("writing on socket ");
+    }
 
 }
 
@@ -101,21 +100,24 @@ void *thread_result(void *ptr) {
 
     int ansB;
     char ans[length];
-//    Get result from server
-    if((ansB = read(sock_local, ans, length)) < 0)
-        perror("reading on socket ");
 
-//    To prevent reading answer of previous command while doing strcmp
-    ans[ansB] = '\0';
+    while(1) {
+    //    Get result from server
+        if((ansB = read(sock_local, ans, length)) < 0)
+            perror("reading on socket ");
 
-//    Exit
-    if(strcmp(ans, "exit") == 0) {
-        exit(0);
-    }
-    else {
-        ans[ansB] = '\n';
-        ans[ansB+1] = '\0';
-        if(write(STDOUT_FILENO, ans, strlen(ans)) < 0)
-            perror("Error writing on stdout ");
+    //    To prevent reading answer of previous command while doing strcmp
+        ans[ansB] = '\0';
+
+    //    Exit
+        if(strcmp(ans, "exit") == 0) {
+            exit(0);
+        }
+        else {
+            ans[ansB] = '\n';
+            ans[ansB+1] = '\0';
+            if(write(STDOUT_FILENO, ans, strlen(ans)) < 0)
+                perror("Error writing on stdout ");
+        }
     }
 }

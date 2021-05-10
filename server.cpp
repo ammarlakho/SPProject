@@ -94,7 +94,6 @@ int main() {
     int sock, serverLength;
     struct sockaddr_in server;
 
-
     /* Create socket */
     sock = socket(AF_INET, SOCK_STREAM, 0);
     if (sock < 0) {
@@ -102,9 +101,17 @@ int main() {
         exit(1);
     }
 
+//    int flags;
+//    flags = fcntl(sock, F_GETFL);
+//    if(flags < 0)
+//        perror("could not get flags on TCP listening socket");
+//    if(fcntl(sock, F_SETFL, flags | O_NONBLOCK) < 0)
+//        perror("could not set TCP listening socket to be non-blocking");
+
+
     server.sin_family = AF_INET;
     server.sin_addr.s_addr = INADDR_ANY;
-    server.sin_port = ntohs(2222);
+    server.sin_port = ntohs(2223);
     if (bind(sock, (struct sockaddr *) &server, sizeof(server))) {
         perror("binding stream socket");
         exit(1);
@@ -216,6 +223,7 @@ void *thread_command(void *ptr) {
                     }
                 }
             }
+            write(STDOUT_FILENO, "\n", 1);
         }
 
         else if(strcmp(first, "processList") == 0)  {
@@ -242,8 +250,15 @@ void *thread_command(void *ptr) {
                 }
             }
             else {
-                for(int i=0; i<clients.size(); i++) {
-                    writeFileContents(clients[i].fd);
+                if(clients.size() > 0) {
+                    for(int i=0; i<clients.size(); i++) {
+                        writeFileContents(clients[i].fd);
+                    }
+                }
+                else {
+                    char errMsg[100];
+                    int errLen = sprintf(errMsg, "No Clients connected currently.\n\n");
+                    write(STDOUT_FILENO, errMsg, errLen);
                 }
             }
         }
@@ -266,7 +281,8 @@ void *thread_accept(void *ptr) {
 
     while(1) {
         int msgsock = accept(sock_local, (struct sockaddr *) &client_addr, &clilen);
-        if (msgsock == -1)
+        int acceptError = errno;
+        if (msgsock == -1 && acceptError != EWOULDBLOCK)
             perror("accept");
         else {
             Client client = Client(msgsock, inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
@@ -288,13 +304,11 @@ void *thread_accept(void *ptr) {
                     bzero(ansS, sizeof(ansS));
                     bzero(commandS, sizeof(commandS));
 
-
-
                     char fileName[100];
                     sprintf(fileName, "processInfo/%d", client.fd);
                     int fd_wr = open(fileName, O_WRONLY | O_CREAT | O_TRUNC, S_IRWXU);
                     if(fd_wr < 0)
-                        perror("opening file ");
+                        perror("IDHAR ");
 
                     else {
                         char listForServer[length];
@@ -306,9 +320,10 @@ void *thread_accept(void *ptr) {
                         if(write(fd_wr, listForServer, strlen(listForServer)) < 0)
                             perror("writing on file ");
                     }
-
-                    if ((rval = read(msgsock, commandS, length)) < 0)
+//                    if(acceptError != EWOULDBLOCK) {
+                        if ((rval = read(msgsock, commandS, length)) < 0)
                         perror("reading on socket");
+//                    }
 
     //                Removing new line character and any spaces at the end
                     commandS[rval-1] = '\0';
@@ -322,8 +337,8 @@ void *thread_accept(void *ptr) {
 
                     if (rval == 0) {
                         char msg[] = "Ending Connection\n";
-                        write(STDOUT_FILENO, msg, strlen(msg));
-                        break;
+//                        write(STDOUT_FILENO, msg, strlen(msg));
+//                        break;
                     }
                     else {
                         char commandSCopy[length];
@@ -548,27 +563,18 @@ void sigChildHandler(int signo) {
 }
 
 void removeClient(int pid) {
-    // itr works as a pointer to pair<string, double>
-    // type itr->first stores the key part  and
-    // itr->second stroes the value part
-    //cout << itr->first << "  " << itr->second << endl;
     int deleteID = -1;
-    unordered_map<int, int>:: iterator itr;
-    for (itr = handlerToClient.begin(); itr != handlerToClient.end(); itr++) {
-        if(itr->first == pid) {
-            deleteID = itr->second;
-            handlerToClient.erase(pid);
-            break;
-        }
-     }
-     if(deleteID != -1) {
+    unordered_map<int, int>:: iterator deleteObj = handlerToClient.find(pid);
+
+    if(deleteObj != handlerToClient.end()) {
+        deleteID = deleteObj->second;
         for(int i=0; i<clients.size(); i++) {
             if(clients[i].fd == deleteID) {
                 clients.erase(clients.begin() + i);
                 break;
             }
         }
-     }
+    }
 }
 
 int removebyID(int id, int wannaKill) {
