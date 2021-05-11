@@ -86,8 +86,6 @@ void cleanup(char *fileName);
 
 
 
-
-
 int main(int argc, char *argv[]) {
     if(argc != 2) {
         char errMsg[] = "Incorrect number of arguments, provide port number ONLY\n";
@@ -313,8 +311,7 @@ void *thread_accept(void *ptr) {
                         char listForServer[length];
                         bzero(listForServer, sizeof(listForServer));
 
-                        if(processList.size() > 0)
-                            computeList(listForServer, true);
+                        computeList(listForServer, true);
 
                         if(write(fd_wr, listForServer, strlen(listForServer)) < 0)
                             perror("writing on file ");
@@ -327,10 +324,7 @@ void *thread_accept(void *ptr) {
 //
 
                         if (rval == 0) {
-                            char msg[] = "Ending Connection\n";
                             cleanup(fileName);
-    //                        write(STDOUT_FILENO, msg, strlen(msg));
-    //                        break;
                         }
                         else {
 //                            Removing new line character and any spaces at the end
@@ -466,21 +460,15 @@ void *thread_accept(void *ptr) {
                                     }
                                 }
                                 else if(type == 7) {
-                                    if(processList.size() > 0) {
-                                        computeList(ansS, true);
-                                        ansL = strlen(ansS);
-                                    }
-                                    else
-                                        ansL = sprintf(ansS, "No active processes\n");
+                                    computeList(ansS, true);
+                                    ansL = strlen(ansS);
+
 
                                 }
                                 else if(type == 8) {
-                                    if(processList.size() > 0) {
                                         computeList(ansS, false);
                                         ansL = strlen(ansS);
-                                    }
-                                    else
-                                        ansL = sprintf(ansS, "No processes\n");
+
                                 }
                             }
                             else {
@@ -781,40 +769,44 @@ void computeList(char* plist, bool type) {
             }
         }
         if(activeCount == 0)
-            strcat(plist, "No active processes");
-        strcat(plist, "\n");
-        strcat(plist, "\0");
+            strcat(plist, "No active processes\n\0");
+        else
+            strcat(plist, "\0");
     }
     else {
-        auto current_clock = high_resolution_clock::now();
-        time_t current_time = chrono::system_clock::to_time_t(current_clock);
-        for(int i=0; i<processList.size(); i++) {
-            char rowP1[256];
-            char rowP2[256];
-//            Time since it was run
-            int elapsed_time = difftime(current_time, processList[i].start_time);
-            char active[10];
-            if(processList[i].active)
-                strcpy(active, "true");
-            else
-                strcpy(active, "false");
-            if(processList[i].end_time == 0) {
-                sprintf(rowP1, "ID: %d, Name: %s, Start: %s, End: N/A, T(Elapsed): %ds, T(Execution): N/A, Active:%s\n\n", processList[i].pid, processList[i].pname, ctime(&processList[i].start_time), elapsed_time, active);
-                strcat(plist, rowP1);
-            }
-            else {
-                time_t end_time = processList[i].end_time;
-//                    total time it ran for
-                int execution_time = difftime(processList[i].end_time, processList[i].start_time);
-                sprintf(rowP1, "ID: %d, Name: %s, Start: %s, ", processList[i].pid, processList[i].pname, ctime(&processList[i].start_time));
-                sprintf(rowP2, "End: %s, T(Elapsed): %ds, T(Execution): %ds, Active: %s\n\n", ctime(&end_time), elapsed_time, execution_time, active);
-                strcat(plist, rowP1);
-                strcat(plist, rowP2);
-            }
+        if(processList.size() == 0)
+            strcat(plist, "No processes\n\0");
+        else {
+            auto current_clock = high_resolution_clock::now();
+            time_t current_time = chrono::system_clock::to_time_t(current_clock);
+            for(int i=0; i<processList.size(); i++) {
 
+                char rowP1[256];
+                char rowP2[256];
+    //            Time since it was run
+                int elapsed_time = difftime(current_time, processList[i].start_time);
+                char active[10];
+                if(processList[i].active)
+                    strcpy(active, "true");
+                else
+                    strcpy(active, "false");
+                if(processList[i].end_time == 0) {
+                    sprintf(rowP1, "ID: %d, Name: %s, Start: %s, End: N/A, T(Elapsed): %ds, T(Execution): N/A, Active: %s\n\n", processList[i].pid, processList[i].pname, ctime(&processList[i].start_time), elapsed_time, active);
+                    strcat(plist, rowP1);
+                }
+                else {
+                    time_t end_time = processList[i].end_time;
+    //                    total time it ran for
+                    int execution_time = difftime(processList[i].end_time, processList[i].start_time);
+                    sprintf(rowP1, "ID: %d, Name: %s, Start: %s, ", processList[i].pid, processList[i].pname, ctime(&processList[i].start_time));
+                    sprintf(rowP2, "End: %s, T(Elapsed): %ds, T(Execution): %ds, Active: %s\n\n", ctime(&end_time), elapsed_time, execution_time, active);
+                    strcat(plist, rowP1);
+                    strcat(plist, rowP2);
+                }
+
+            }
+            strcat(plist, "\0");
         }
-        strcat(plist, "\n");
-        strcat(plist, "\0");
     }
 
 }
