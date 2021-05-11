@@ -72,7 +72,7 @@ int sub(char *numbers);
 int mult(char *numbers);
 double div(char *numbers);
 double solve(char *numbers, int type);
-int opType(char *s, int blank);
+int opType(char *s);
 int validInput(char *numbers, int type);
 void sigChildHandler(int signo);
 int removebyID(int id, int wannaKill);
@@ -308,7 +308,7 @@ void *thread_accept(void *ptr) {
                     sprintf(fileName, "processInfo/%d", client.fd);
                     int fd_wr = open(fileName, O_WRONLY | O_CREAT | O_TRUNC, S_IRWXU);
                     if(fd_wr < 0)
-                        perror("IDHAR ");
+                        perror("opening file ");
 
                     else {
                         char listForServer[length];
@@ -346,14 +346,10 @@ void *thread_accept(void *ptr) {
 
             //            Do the command
                         commandTokenized = strtok (commandS, " ");
-                        int type;
-                        if(strlen(commandS) == 0)
-                            type = opType(commandTokenized, 1);
-                        else
-                            type = opType(commandTokenized, 0);
+                        int type = opType(commandTokenized);
 
 
-                        if(type != -1 && type != -99) {
+                        if(type != -1) {
                             if(type == 0) {
                                 ansL = sprintf(ansS, "exit");
                             }
@@ -373,6 +369,9 @@ void *thread_accept(void *ptr) {
                                 }
                                 else if(valid == -2){
                                     ansL = sprintf(ansS, "Error: Can't divide by 0!\n");
+                                }
+                                else if(valid == -3) {
+                                    ansL = sprintf(ansS, "Error: Insufficient arguments!\n");
                                 }
                             }
 
@@ -485,13 +484,8 @@ void *thread_accept(void *ptr) {
                             }
                         }
                         else {
-                            if(type == -1) {
-                                if (commandTokenized[strlen(commandTokenized)-1] == '\n')
-                                    commandTokenized[strlen(commandTokenized)-1] = '\0';
-                            }
-
+                            if(commandTokenized == NULL) commandTokenized = "";
                             ansL = sprintf(ansS, "Error: Cannot recognize the command: %s\n", commandTokenized);
-
                         }
 
                 //        Send result to client
@@ -719,6 +713,8 @@ double div(char *numbers) {
 int validInput(char *numbers, int type) {
     numbers = strtok (NULL, " ");
     int j = 0;
+    if (numbers == NULL)
+        return -3;
     while (numbers != NULL) {
         for(int i=0; i<strlen(numbers); i++) {
             if(!isdigit(numbers[i]) && numbers[i] != '\n') {
@@ -737,10 +733,10 @@ int validInput(char *numbers, int type) {
 }
 
 
-int opType(char *s, int blank) {
-
-    if(blank == 1)
-        return -99;
+int opType(char *s) {
+    if(s==NULL) {
+        return -1;
+    }
 
     if (s[strlen(s)-1] == '\n')
         s[strlen(s)-1] = '\0';
@@ -751,7 +747,7 @@ int opType(char *s, int blank) {
     else if(strcmp(s, "sub") == 0) {
         return 2;
     }
-    else if(strcmp(s, "mult") == 0) {
+    else if(strcmp(s, "mul") == 0) {
         return 3;
     }
     else if(strcmp(s, "div") == 0) {
