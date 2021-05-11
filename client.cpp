@@ -7,24 +7,34 @@
 #include <netinet/in.h>9
 #include <netdb.h>
 #include <stdio.h>
+#include <signal.h>
+#include <sys/wait.h>
 
 
 using namespace std;
 
 const int length = 4096;
+int sock;
 
 void *thread_command(void *ptr);
 void *thread_result(void *ptr);
+//void sigChildHandler(int signo);
 
 
 int main(int argc, char *argv[]) {
 
-    int sock;
+    if(argc != 3) {
+        char errMsg[] = "Incorrect number of arguments, provide localhost and port number ONLY\n";
+        write(STDOUT_FILENO, errMsg, strlen(errMsg));
+        exit(1);
+    }
+
+//    signal(SIGCHLD, sigChildHandler);
+
     struct sockaddr_in server;
     struct hostent *hp;
 
-
-    /* Create socket */
+/* Create socket */
     sock = socket(AF_INET, SOCK_STREAM, 0);
     if (sock < 0) {
         perror("opening stream socket");
@@ -45,11 +55,6 @@ int main(int argc, char *argv[]) {
         exit(1);
     }
 
-    char prompt[] = "Enter command:\n\n";
-    if(write(STDOUT_FILENO, prompt, strlen(prompt)) < 0)
-        perror("writing on stdout ");
-
-
         pthread_t threadCommand, threadResult;
 
         int  iret1, iret2;
@@ -67,12 +72,11 @@ int main(int argc, char *argv[]) {
             exit(EXIT_FAILURE);
         }
 
-//        pthread_detach(threadCommand);
-//        pthread_detach(threadResult);
         pthread_join(threadCommand, NULL);
         pthread_join(threadResult, NULL);
 
         close(sock);
+
 
     return 0;
 
@@ -80,44 +84,73 @@ int main(int argc, char *argv[]) {
 
 
 void *thread_command(void *ptr) {
-    int sock_local = (intptr_t) ptr;
+//    int sock_local = (intptr_t) ptr;
+
+    char prompt[] = "Enter command:\n\n";
+        if(write(STDOUT_FILENO, prompt, strlen(prompt)) < 0)
+            perror("writing on stdout ");
+
 
     int readB;
     char commandC[length];
 
     while(1) {
+
         if((readB = read(STDIN_FILENO, commandC, length)) < 0)
-        perror("reading on stdout ");
+            perror("reading on stdout ");
         int wSockLen;
-        if ((wSockLen = write(sock_local, commandC, readB)) < 0)
+        if ((wSockLen = write(sock, commandC, readB)) < 0)
             perror("writing on socket ");
     }
 
 }
 
 void *thread_result(void *ptr) {
-    int sock_local = (intptr_t) ptr;
+//    int sock_local = (intptr_t) ptr;
 
     int ansB;
     char ans[length];
 
     while(1) {
     //    Get result from server
-        if((ansB = read(sock_local, ans, length)) < 0)
+//        if((ansB = read(sock_local, ans, length)) < 0)
+//            perror("reading on socket ");
+        ansB = read(sock, ans, length);
+        int e = errno;
+        if(ansB < 0 && e != EWOULDBLOCK)
             perror("reading on socket ");
+        else if(ansB >=0 && e!= EWOULDBLOCK) {
 
-    //    To prevent reading answer of previous command while doing strcmp
-        ans[ansB] = '\0';
+        //    To prevent reading answer of previous command while doing strcmp
+            ans[ansB] = '\0';
 
-    //    Exit
-        if(strcmp(ans, "exit") == 0) {
-            exit(0);
+        //    Exit
+            if(strcmp(ans, "exit") == 0) {
+                exit(0);
+            }
+            else {
+                ans[ansB] = '\n';
+                ans[ansB+1] = '\0';
+                if(write(STDOUT_FILENO, ans, strlen(ans)) < 0)
+                    perror("Error writing on stdout ");
+            }
         }
         else {
-            ans[ansB] = '\n';
-            ans[ansB+1] = '\0';
-            if(write(STDOUT_FILENO, ans, strlen(ans)) < 0)
-                perror("Error writing on stdout ");
+
         }
     }
 }
+
+
+//void sigChildHandler(int signo) {
+//    int status;
+//    int eID = waitpid(-1, &status, 0);
+//
+//    if(eID != -1) {
+//        cout << "EID " << eID << endl;
+//    }
+//    else {
+//        perror("Wait Error: ");
+//    }
+//}
+
