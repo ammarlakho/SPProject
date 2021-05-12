@@ -112,14 +112,10 @@ void *thread_result(void *ptr) {
     char ans[length];
 
     while(1) {
-    //    Get result from server
-//        if((ansB = read(sock_local, ans, length)) < 0)
-//            perror("reading on socket ");
         ansB = read(sock, ans, length);
-        int e = errno;
-        if(ansB < 0 && e != EWOULDBLOCK)
+        if(ansB < 0)
             perror("reading on socket ");
-        else if(ansB >=0 && e!= EWOULDBLOCK) {
+        else if(ansB > 0){
 
         //    To prevent reading answer of previous command while doing strcmp
             ans[ansB] = '\0';
@@ -135,22 +131,5 @@ void *thread_result(void *ptr) {
                     perror("Error writing on stdout ");
             }
         }
-        else {
-
-        }
     }
 }
-
-
-//void sigChildHandler(int signo) {
-//    int status;
-//    int eID = waitpid(-1, &status, 0);
-//
-//    if(eID != -1) {
-//        cout << "EID " << eID << endl;
-//    }
-//    else {
-//        perror("Wait Error: ");
-//    }
-//}
-

@@ -78,10 +78,11 @@ int removebyID(int id, int wannaKill);
 int removebyName(char *name, int wannaKill);
 void *thread_accept(void *ptr);
 void *thread_command(void *ptr);
-void removeClient(int id);
+void handleCHTermination(int pid);
 void computeList(char* plist, bool type);
 void writeFileContents(int fname);
-void cleanup(char *fileName);
+void cleanupCalledFromCH(char *fileName, int clientFD);
+void cleanupCalledFromConn(char *fileName, int clientFD);
 
 
 
@@ -324,7 +325,7 @@ void *thread_accept(void *ptr) {
 //
 
                         if (rval == 0) {
-                            cleanup(fileName);
+                            cleanupCalledFromCH(fileName, 0);
                         }
                         else {
 //                            Removing new line character and any spaces at the end
@@ -344,136 +345,132 @@ void *thread_accept(void *ptr) {
                             int type = opType(commandTokenized);
 
 
-                            if(type != -1) {
-                                if(type == 0) {
-                                    ansL = sprintf(ansS, "exit");
+
+            //                Math operations
+                            if(type >= 1 && type <= 4) {
+                                int valid = validInput(commandTokenized, type);
+                                if(valid == 0) {
+                                    commandTokenizedCopy = strtok(commandSCopy, " ");
+                                    double ans = solve(commandTokenizedCopy, type);
+                                    if(type!=4)
+                                        ansL = sprintf(ansS, "Ans=%.0f\n", ans);
+                                    else
+                                        ansL = sprintf(ansS, "Ans=%.2f\n", ans);
                                 }
-                //                Math operations
-                                else if(type >= 1 && type <= 4) {
-                                    int valid = validInput(commandTokenized, type);
-                                    if(valid == 0) {
-                                        commandTokenizedCopy = strtok(commandSCopy, " ");
-                                        double ans = solve(commandTokenizedCopy, type);
-                                        if(type!=4)
-                                            ansL = sprintf(ansS, "Ans=%.0f\n", ans);
-                                        else
-                                            ansL = sprintf(ansS, "Ans=%.2f\n", ans);
-                                    }
-                                    else if(valid == -1){
-                                        ansL = sprintf(ansS, "Error: Enter numbers only!\n");
-                                    }
-                                    else if(valid == -2){
-                                        ansL = sprintf(ansS, "Error: Can't divide by 0!\n");
-                                    }
-                                    else if(valid == -3) {
-                                        ansL = sprintf(ansS, "Error: Insufficient arguments!\n");
-                                    }
+                                else if(valid == -1){
+                                    ansL = sprintf(ansS, "Error: Enter numbers only!\n");
                                 }
-
-                //                exec
-                                else if(type==5) {
-                                    commandTokenized = strtok(NULL, " ");
-                                    char *args[10];
-                                    int j = 0;
-                                    while (commandTokenized != NULL) {
-                                        args[j] = commandTokenized;
-                                        commandTokenized = strtok(NULL, " ");
-                                        j++;
-                                    }
-                                    args[j] = NULL;
-
-                                    if (j>=1) {
-                                        int pipeProcess[2];
-                                        pipe(pipeProcess);
-                                        int pipeFailure[2];
-                                        pipe2(pipeFailure, O_CLOEXEC);
-
-                                        int pidRun = fork();
-                                        if(pidRun == 0) {
-                                            close(pipeProcess[0]);
-                                            close(pipeFailure[0]);
-                                            auto clock = high_resolution_clock::now();
-                                            time_t start_time = chrono::system_clock::to_time_t(clock);
-
-                                            MyProcess newP = MyProcess(getpid(), args[0], start_time);
-
-                                            if(write(pipeProcess[1], &newP, sizeof(MyProcess)) < 0)
-                                                perror("write on pipe");
-                                            int a = execvp(args[0], args);
-                                            if(a == -1) {
-                                                perror("ERROR ");
-                                                write(pipeFailure[1], "failed", 6);
-                                                exit(0);
-                                            }
-                                        }
-                                        else {
-                                            close(pipeProcess[1]);
-                                            close(pipeFailure[1]);
-
-                                            MyProcess p;
-                                            read(pipeProcess[0], &p, sizeof(MyProcess));
-
-                                            char *failureMsg;
-                                            int f = read(pipeFailure[0], &failureMsg, 6);
-                                            if(f == 0) {
-                                                processList.push_back(p);
-                                                ansL = sprintf(ansS, "Successful execution of %s\n", args[0]);
-                                            }
-                                            else {
-                                                ansL = sprintf(ansS, "Exec failed. Try again :(\n");
-                                            }
-                                        }
-                                    }
-                                    else {
-                                        ansL = sprintf(ansS, "Insufficient arguments to run\n");
-                                    }
-
+                                else if(valid == -2){
+                                    ansL = sprintf(ansS, "Error: Can't divide by 0!\n");
                                 }
-                                else if(type == 6) {
-                                    MyProcess emptyP;
-                                    char *arg = strtok(NULL, " ");
-                                    if(arg == NULL) {
-                                        ansL = sprintf(ansS, "Insufficient arguments to kill\n");
-                                    }
-                                    else {
-                                        bool idOrNot = true;
-                                        int foundID = 0;
-                                        int foundName = 0;
-
-                                        for(int i=0; i<strlen(arg); i++) {
-                                            if(!isdigit(arg[i])) idOrNot = false;
-                                        }
-                                        if(idOrNot) {
-                                            int num = atoi(arg);
-                                            foundID = removebyID(num, 1);
-                                        }
-                                        else {
-                                            foundName = removebyName(arg, 1);
-                                        }
-
-                                        if (foundName == -1)
-                                            ansL = sprintf(ansS, "Can not find process with the name '%s'\n", arg);
-                                        else if (foundID == -1)
-                                            ansL = sprintf(ansS, "Can not find process with the id '%s'\n", arg);
-                                        else
-                                            ansL = sprintf(ansS, "Killed!\n");
-                                    }
-                                }
-                                else if(type == 7) {
-                                    computeList(ansS, true);
-                                    ansL = strlen(ansS);
-
-
-                                }
-                                else if(type == 8) {
-                                        computeList(ansS, false);
-                                        ansL = strlen(ansS);
-
+                                else if(valid == -3) {
+                                    ansL = sprintf(ansS, "Error: Insufficient arguments!\n");
                                 }
                             }
-                            else {
+
+            //                exec
+                            else if(type==5) {
+                                commandTokenized = strtok(NULL, " ");
+                                char *args[10];
+                                int j = 0;
+                                while (commandTokenized != NULL) {
+                                    args[j] = commandTokenized;
+                                    commandTokenized = strtok(NULL, " ");
+                                    j++;
+                                }
+                                args[j] = NULL;
+
+                                if (j>=1) {
+                                    int pipeProcess[2];
+                                    pipe(pipeProcess);
+                                    int pipeFailure[2];
+                                    pipe2(pipeFailure, O_CLOEXEC);
+
+                                    int pidRun = fork();
+                                    if(pidRun == 0) {
+                                        close(pipeProcess[0]);
+                                        close(pipeFailure[0]);
+                                        auto clock = high_resolution_clock::now();
+                                        time_t start_time = chrono::system_clock::to_time_t(clock);
+
+                                        MyProcess newP = MyProcess(getpid(), args[0], start_time);
+
+                                        if(write(pipeProcess[1], &newP, sizeof(MyProcess)) < 0)
+                                            perror("write on pipe");
+                                        int a = execvp(args[0], args);
+                                        if(a == -1) {
+                                            perror("ERROR ");
+                                            write(pipeFailure[1], "failed", 6);
+                                            exit(0);
+                                        }
+                                    }
+                                    else {
+                                        close(pipeProcess[1]);
+                                        close(pipeFailure[1]);
+
+                                        MyProcess p;
+                                        read(pipeProcess[0], &p, sizeof(MyProcess));
+
+                                        char *failureMsg;
+                                        int f = read(pipeFailure[0], &failureMsg, 6);
+                                        if(f == 0) {
+                                            processList.push_back(p);
+                                            ansL = sprintf(ansS, "Successful execution of %s\n", args[0]);
+                                        }
+                                        else {
+                                            ansL = sprintf(ansS, "Exec failed. Try again :(\n");
+                                        }
+                                    }
+                                }
+                                else {
+                                    ansL = sprintf(ansS, "Insufficient arguments to run\n");
+                                }
+
+                            }
+                            else if(type == 6) {
+                                MyProcess emptyP;
+                                char *arg = strtok(NULL, " ");
+                                if(arg == NULL) {
+                                    ansL = sprintf(ansS, "Insufficient arguments to kill\n");
+                                }
+                                else {
+                                    bool idOrNot = true;
+                                    int foundID = 0;
+                                    int foundName = 0;
+
+                                    for(int i=0; i<strlen(arg); i++) {
+                                        if(!isdigit(arg[i])) idOrNot = false;
+                                    }
+                                    if(idOrNot) {
+                                        int num = atoi(arg);
+                                        foundID = removebyID(num, 1);
+                                    }
+                                    else {
+                                        foundName = removebyName(arg, 1);
+                                    }
+
+                                    if (foundName == -1)
+                                        ansL = sprintf(ansS, "Can not find process with the name '%s'\n", arg);
+                                    else if (foundID == -1)
+                                        ansL = sprintf(ansS, "Can not find process with the id '%s'\n", arg);
+                                    else
+                                        ansL = sprintf(ansS, "Killed!\n");
+                                }
+                            }
+                            else if(type == 7) {
+                                computeList(ansS, true);
+                                ansL = strlen(ansS);
+                            }
+                            else if(type == 8) {
+                                    computeList(ansS, false);
+                                    ansL = strlen(ansS);
+                            }
+                            else if(type == -1){
                                 if(commandTokenized == NULL) commandTokenized = "";
                                 ansL = sprintf(ansS, "Error: Cannot recognize the command: %s\n", commandTokenized);
+                            }
+                            else if(type == 0) {
+                                cleanupCalledFromCH(fileName, msgsock);
                             }
 
                     //        Send result to client
@@ -481,9 +478,6 @@ void *thread_accept(void *ptr) {
                             if ((wSockLen = write(msgsock, ansS, ansL)) < 0)
                                 perror("writing on socket ");
 
-                            if(type == 0) {
-                                cleanup(fileName);
-                            }
                         }
                     close(fd_wr);
                 }
@@ -492,18 +486,51 @@ void *thread_accept(void *ptr) {
     }
 }
 
-void cleanup(char *fileName) {
-    for(int i=0; i<processList.size(); i++) {
-    if(processList[i].active) {
-        if(kill(processList[i].pid, SIGTERM) < 0)
-            perror("kill ");
-        }
-    }
+void cleanupCalledFromCH(char *fileName, int clientFD) {
 // Delete the file you are storing your process list in
     remove(fileName);
+
+    if(clientFD  != 0) {
+        char printMsg[] = "exit";
+        write(clientFD, printMsg, strlen(printMsg));
+    }
+
+
+    for(int i=0; i<processList.size(); i++) {
+        if(processList[i].active) {
+            if(kill(processList[i].pid, SIGTERM) < 0)
+                perror("kill ");
+        }
+    }
+
 //    Kill yourself(client handler)
-    exit(0);
+        exit(0);
 }
+
+
+void cleanupCalledFromConn(char *fileName, int clientFD) {
+// Delete the file you are storing your process list in
+    remove(fileName);
+    char printMsg[] = "exit";
+    write(clientFD, printMsg, strlen(printMsg));
+
+    for(int i=0; i<processList.size(); i++) {
+        cout << "There are processes inside conn's process list" << endl;
+        if(processList[i].active) {
+            if(kill(processList[i].pid, SIGTERM) < 0)
+                perror("kill ");
+        }
+    }
+
+    for(int i=0; i<clients.size(); i++) {
+        if(clients[i].fd == clientFD) {
+            clients.erase(clients.begin()+i);
+            break;
+        }
+    }
+
+}
+
 
 
 void writeFileContents(int fname) {
@@ -538,26 +565,30 @@ void sigChildHandler(int signo) {
 
     if(eID != -1) {
         removebyID(eID, 0);
-        removeClient(eID);
+        handleCHTermination(eID);
+
     }
     else {
         perror("Wait Error: ");
     }
 }
 
-void removeClient(int pid) {
-    int deleteID = -1;
+
+void handleCHTermination(int pid) {
+    int clientFD = -1;
+    int clientHandlerPID = -1;
     unordered_map<int, int>:: iterator deleteObj = handlerToClient.find(pid);
 
+
+
     if(deleteObj != handlerToClient.end()) {
-        deleteID = deleteObj->second;
-        int deleteFD = deleteObj->first;
+        clientHandlerPID = deleteObj->first;
+        clientFD = deleteObj->second;
         for(int i=0; i<clients.size(); i++) {
-            if(clients[i].fd == deleteID) {
-                clients.erase(clients.begin() + i);
+            if(clients[i].fd == clientFD) {
                 char fileName[100];
-                sprintf(fileName, "processInfo/%d", deleteID);
-                remove(fileName);
+                sprintf(fileName, "processInfo/%d", clientFD);
+                cleanupCalledFromConn(fileName, clientFD);
                 break;
             }
         }
