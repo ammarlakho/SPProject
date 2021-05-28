@@ -84,8 +84,6 @@ int main(int argc, char *argv[]) {
 
 
 void *thread_command(void *ptr) {
-//    int sock_local = (intptr_t) ptr;
-
     char prompt[] = "Enter command:\n\n";
         if(write(STDOUT_FILENO, prompt, strlen(prompt)) < 0)
             perror("writing on stdout ");
@@ -106,8 +104,6 @@ void *thread_command(void *ptr) {
 }
 
 void *thread_result(void *ptr) {
-//    int sock_local = (intptr_t) ptr;
-
     int ansB;
     char ans[length];
 
