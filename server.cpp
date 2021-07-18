@@ -13,6 +13,7 @@
 #include <vector>
 #include <poll.h>
 #include <unordered_map>
+#include <sys/stat.h>
 
 using namespace std;
 using namespace std::chrono;
@@ -67,7 +68,6 @@ unordered_map<int, int> handlerToClient;
 int myClientFD = -1;
 
 
-
 int add(char *numbers);
 int sub(char *numbers);
 int mult(char *numbers);
@@ -86,8 +86,6 @@ void printFileContents(int fname);
 void cleanupCalledFromCH(int fd, bool letClientKnow);
 void cleanupCalledFromConn(int clientFD);
 void writeListToFile(int fd);
-
-
 
 
 int main(int argc, char *argv[]) {
@@ -308,6 +306,13 @@ void *thread_accept(void *ptr) {
     int rval;
     int iter = 0;
 
+    int dir = mkdir("processInfo", S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH);
+    if (dir == -1 && errno != EEXIST){
+        printf("Error creating directory\n");
+        exit(1);
+    }
+
+
     while(1) {
         int msgsock = accept(sock_local, (struct sockaddr *) &client_addr, &clilen);
         if (msgsock == -1)
@@ -331,6 +336,8 @@ void *thread_accept(void *ptr) {
                     int ansL = 0;
                     bzero(ansS, sizeof(ansS));
                     bzero(commandS, sizeof(commandS));
+
+                    writeListToFile(client.fd);
 
                     int rval = read(msgsock, commandS, length);
                     if(rval == -1)
@@ -492,7 +499,6 @@ void *thread_accept(void *ptr) {
                             perror("writing on socket ");
 
                     }
-                    writeListToFile(client.fd);
                 }
             }
         }
@@ -641,7 +647,7 @@ int removebyName(char *name, int wannaKill) {
             if(wannaKill == 1)
                 if(kill(processList[i].pid, SIGTERM) < 0)
                     perror("kill error: ");
-//            activeList.erase(activeList.begin()+i);
+
             auto current_clock = high_resolution_clock::now();
             time_t current_time = chrono::system_clock::to_time_t(current_clock);
             processList[i].end_time = current_time;

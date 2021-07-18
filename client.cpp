@@ -29,8 +29,6 @@ int main(int argc, char *argv[]) {
         exit(1);
     }
 
-//    signal(SIGCHLD, sigChildHandler);
-
     struct sockaddr_in server;
     struct hostent *hp;
 
