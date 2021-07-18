@@ -133,13 +133,15 @@ Conversion notes:
 _./client IP Port#_
 
 
-### IP address of the computer running the server should be provided alongside the port that the server has made available for communication.
+IP = IP address of the computer running the server. <br>
+Port# = The port that the server has made available for communication.
 
 
 ### Server
 
 _./server Port#_
 
+Port# = The port that the server has made available for communication.
 
 ## Architecture
 
