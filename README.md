@@ -27,10 +27,6 @@ Conversion notes:
 
 # Client Server Application
 
-<p style="text-align: right">
-<strong>Ammar Lakho 18055</strong></p>
-
-
 
 ## Help
 
